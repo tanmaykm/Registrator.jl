@@ -41,12 +41,44 @@ macro gf_bool(ex::Expr)
     end
 end
 
+# blacklisted characters because of their possible use in shell injection or path traversal
+# '[', ']'              => Defines a character class.
+# '&', ';'              => Command separator/background.
+# '|', '<', '>'         => Pipe and redirection.
+# '`'                   => Old command substitution.
+# '!'                   => History expansion (bash).
+# '$'                   => Variable expansion.
+# ''', '"'              => weak and strong quoting
+# '{', '}'              => Command grouping/brace expansion.
+# '\\'                  => Escape character.
+# '/'                   => Path separator.
+# '#'                   => Comment (can break a line).
+# '*', '?', '[', ']'    => Globbing wildcards.
+# '(', ')'              => Subshells/command grouping.
+# '~'                   => Home directory expansion.
+# '^'                   => Special in some shells (e.g., Windows cmd.exe).
+# '%'                   => Special in some shells (e.g., Windows cmd.exe, environment variables).
+# '\n', '\r'            => Newline and carriage return.
+# '\t', ' '             => Space (whitespace, can separate arguments).
+# '\0'                  => Null character.
+function is_safe_string(s::AbstractString)
+    # Create a regex pattern that matches any string without blacklisted characters
+    # We use a negated character class to match only characters NOT in our blacklist
+    safe_pattern = r"^[^\[\]&;|<>`!$'\"{}\\/#*?\(\)~^%\n\r\t \0]*$"
+    
+    return occursin(safe_pattern, s)
+end
+
 # Split a repo path into its owner and name.
 function splitrepo(url::AbstractString)
     url = replace(url, r"(.*).git$" => s"\1")
     pieces = split(HTTP.URI(url).path, "/"; keepempty=false)
     owner = join(pieces[1:end-1], "/")
     name = pieces[end]
+    @assert !isempty(owner)
+    @assert !isempty(name)
+    @assert is_safe_string(owner)
+    @assert is_safe_string(name)
     return owner, name
 end
 
