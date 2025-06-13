@@ -66,8 +66,10 @@ end
 # We use a negated character class to match only characters NOT in our blacklist
 const SAFE_REPO_NAME_OWNER = r"^[^\[\]&;|<>`!$'\"{}\\/#*?\(\)~^%\n\r\t \0]*$"
 const UNSAFE_CLONE_URL = r"[;&|`$><\"\'\\\r\n\t]"
+const UNSAFE_PASSWORD = r"\r\n\t]"
 is_safe_repo_name_owner(s) = occursin(SAFE_REPO_NAME_OWNER, s)
 is_safe_clone_url(s) = !occursin(UNSAFE_CLONE_URL, s)
+is_safe_password(s) = !occursin(UNSAFE_PASSWORD, s)
 
 # Split a repo path into its owner and name.
 function splitrepo(url::AbstractString)
@@ -306,14 +308,17 @@ function withpasswd(func, url::URI)
     local user, passwd = split(info, ":")
     local newurl = URI(replace(string(url), "$info@" => ""))
     mktemp() do path, io
+        # base64 encode now and decode while printing out in shell to avoid shell injection
+        encoded_user = base64encode(user)
+        encoded_passwd = base64encode(passwd)    
         print(io, """
 #!/bin/sh
 case "\$1" in
     Username*)
-        echo "$user"
+        echo  "\$(echo "$encoded_user" | base64 -d)"
         ;;
     Password*)
-        echo "$passwd"
+        echo "\$(echo "$encoded_passwd" | base64 -d)"
         ;;
 esac
 """)
