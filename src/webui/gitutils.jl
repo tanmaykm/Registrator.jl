@@ -41,7 +41,7 @@ macro gf_bool(ex::Expr)
     end
 end
 
-# blacklisted characters because of their possible use in shell injection or path traversal
+# Blacklisted characters because of their possible use in shell injection or path traversal
 # '[', ']'              => Defines a character class.
 # '&', ';'              => Command separator/background.
 # '|', '<', '>'         => Pipe and redirection.
@@ -61,13 +61,13 @@ end
 # '\n', '\r'            => Newline and carriage return.
 # '\t', ' '             => Space (whitespace, can separate arguments).
 # '\0'                  => Null character.
-function is_safe_string(s::AbstractString)
-    # Create a regex pattern that matches any string without blacklisted characters
-    # We use a negated character class to match only characters NOT in our blacklist
-    safe_pattern = r"^[^\[\]&;|<>`!$'\"{}\\/#*?\(\)~^%\n\r\t \0]*$"
-    
-    return occursin(safe_pattern, s)
-end
+# 
+# Create a regex pattern that matches any string without blacklisted characters
+# We use a negated character class to match only characters NOT in our blacklist
+const SAFE_REPO_NAME_OWNER = r"^[^\[\]&;|<>`!$'\"{}\\/#*?\(\)~^%\n\r\t \0]*$"
+const UNSAFE_CLONE_URL = r"[;&|`$><\"\'\\\r\n\t]"
+is_safe_repo_name_owner(s) = occursin(SAFE_REPO_NAME_OWNER, s)
+is_safe_clone_url(s) = !occursin(UNSAFE_CLONE_URL, s)
 
 # Split a repo path into its owner and name.
 function splitrepo(url::AbstractString)
@@ -77,8 +77,8 @@ function splitrepo(url::AbstractString)
     name = pieces[end]
     @assert !isempty(owner)
     @assert !isempty(name)
-    @assert is_safe_string(owner)
-    @assert is_safe_string(name)
+    @assert is_safe_repo_name_owner(owner)
+    @assert is_safe_repo_name_owner(name)
     return owner, name
 end
 
@@ -274,12 +274,17 @@ function gettreesha(
 )
     return try
         url = cloneurl(r)
+        if !is_safe_clone_url(url)
+            throw(ArgumentError("Invalid or unsafe clone URL"))
+        end
         mktempdir() do dir
             dest = joinpath(dir, r.name)
             withpasswd(url) do url, env
-                run(Cmd(`git clone --bare $url $dest`; env))
+                # let Cmd interpolate strings safely
+                run(Cmd(["git", "clone", "--bare", url, dest]; env))
             end
-            readchomp(`git -C $dest rev-parse $ref:$subdir`), ""
+            # let Cmd interpolate strings safely
+            readchomp(Cmd(["git", "-C", dest, "rev-parse", "$ref:$subdir"]))
         end
     catch ex
         @error "Exception while getting tree SHA" exception=(ex, catch_backtrace())
